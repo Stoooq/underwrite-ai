@@ -9,7 +9,6 @@ class DataLoader:
         self.base_path = base_path
 
     def _load_csv(self, path: str) -> DataFrame:
-        # file_path = Path(f"{self.base_path}/{path}")
         return self.spark.read.csv(str(Path(self.base_path) / path), header=True, inferSchema=True)
 
     def _validate_columns(self, df: DataFrame, required_columns: list[str]):
@@ -31,7 +30,7 @@ class DataLoader:
         }
 
         if type_conflicts:
-            raise ValueError(f"Data types conflict in columns: {type_conflicts}")
+            raise ValueError(f"Data types conflict: {type_conflicts}")
 
     def load_table(
         self,

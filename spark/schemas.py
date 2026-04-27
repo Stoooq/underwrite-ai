@@ -43,6 +43,104 @@ APPLICATION_SCHEMA: dict[str, str] = {
     "AMT_REQ_CREDIT_BUREAU_YEAR": "double",  # inquiries in last year
 }
 
+PREVIOUS_APPLICATION_SCHEMA: dict[str, str] = {
+    # --- Identifiers ---
+    "SK_ID_PREV": "int",   # unique ID of this previous application
+    "SK_ID_CURR": "int",   # client ID — joins to application_train
+    # --- Application details ---
+    "NAME_CONTRACT_TYPE": "string",    # type: Consumer loans, Cash loans, Revolving loans
+    "NAME_CONTRACT_STATUS": "string",  # outcome: Approved, Refused, Canceled, Unused offer
+    "CODE_REJECT_REASON": "string",    # reason for rejection if refused
+    "AMT_APPLICATION": "double",       # amount client applied for
+    "AMT_CREDIT": "double",            # amount actually granted (may differ from application)
+    "AMT_ANNUITY": "double",           # annuity of the previous loan
+    "AMT_DOWN_PAYMENT": "double",      # down payment made
+    "AMT_GOODS_PRICE": "double",       # price of goods the loan was for
+    # --- Time-based ---
+    "DAYS_DECISION": "int",            # days before current application when decision was made
+    "DAYS_FIRST_DUE": "double",        # days before current application of first installment due
+    "DAYS_LAST_DUE": "double",         # days before current application of last installment due
+    "DAYS_TERMINATION": "double",      # expected termination date
+    # --- Loan terms ---
+    "CNT_PAYMENT": "double",           # number of installments granted
+    "NAME_YIELD_GROUP": "string",      # interest rate group: low, medium, high, very high
+    "CHANNEL_TYPE": "string",          # sales channel used (Country-wide, Stone, etc.)
+    "NAME_GOODS_CATEGORY": "string",   # category of goods financed
+    "NAME_PORTFOLIO": "string",        # portfolio type (POS, Cards, Cars, Cash)
+}
+
+INSTALLMENTS_PAYMENTS_SCHEMA: dict[str, str] = {
+    # --- Identifiers ---
+    "SK_ID_PREV": "int",   # previous application ID — joins to previous_application
+    "SK_ID_CURR": "int",   # client ID — joins to application_train
+    # --- Installment details ---
+    "NUM_INSTALMENT_VERSION": "double",  # version of the installment schedule
+    "NUM_INSTALMENT_NUMBER": "int",   # installment number in the sequence
+    # --- Payment timing (key risk signals) ---
+    "DAYS_INSTALMENT": "double",    # day the installment was supposed to be paid
+    "DAYS_ENTRY_PAYMENT": "double", # day the installment was actually paid (null if unpaid)
+    # --- Payment amounts ---
+    "AMT_INSTALMENT": "double",  # amount that was scheduled to be paid
+    "AMT_PAYMENT": "double",     # amount actually paid (difference = partial payment)
+}
+
+POS_CASH_BALANCE_SCHEMA: dict[str, str] = {
+    # --- Identifiers ---
+    "SK_ID_PREV": "int",  # previous application ID
+    "SK_ID_CURR": "int",  # client ID — joins to application_train
+    # --- Monthly snapshot ---
+    "MONTHS_BALANCE": "int",             # month of the snapshot relative to application (0 = current, -1 = one month ago)
+    "CNT_INSTALMENT": "double",          # total number of installments in the contract
+    "CNT_INSTALMENT_FUTURE": "double",   # number of installments remaining
+    "NAME_CONTRACT_STATUS": "string",    # status at this month: Active, Completed, etc.
+    # --- Days past due (key risk signals) ---
+    "SK_DPD": "int",      # days past due during this month
+    "SK_DPD_DEF": "int",  # days past due with tolerance (defined DPD)
+}
+
+CREDIT_CARD_BALANCE_SCHEMA: dict[str, str] = {
+    # --- Identifiers ---
+    "SK_ID_PREV": "int",  # previous application ID
+    "SK_ID_CURR": "int",  # client ID — joins to application_train
+    # --- Monthly snapshot ---
+    "MONTHS_BALANCE": "int",              # month relative to application (0 = current)
+    "NAME_CONTRACT_STATUS": "string",     # status: Active, Completed, Signed, etc.
+    # --- Balances and limits ---
+    "AMT_BALANCE": "double",              # balance on the card this month
+    "AMT_CREDIT_LIMIT_ACTUAL": "int",  # credit limit this month
+    "AMT_RECEIVABLE_PRINCIPAL": "double", # principal receivable
+    "AMT_TOTAL_RECEIVABLE": "double",     # total receivable amount
+    # --- Drawings (spending behaviour) ---
+    "AMT_DRAWINGS_CURRENT": "double",     # total amount drawn this month
+    "AMT_DRAWINGS_ATM_CURRENT": "double", # amount drawn at ATMs
+    "AMT_DRAWINGS_POS_CURRENT": "double", # amount drawn at POS terminals
+    "CNT_DRAWINGS_CURRENT": "int",     # number of drawings this month
+    # --- Payments ---
+    "AMT_PAYMENT_CURRENT": "double",      # amount paid this month
+    "AMT_INST_MIN_REGULARITY": "double",  # minimum required payment
+    # --- Days past due (key risk signals) ---
+    "SK_DPD": "int",      # days past due this month
+    "SK_DPD_DEF": "int",  # days past due with tolerance
+}
+
+BUREAU_BALANCE_SCHEMA: dict[str, str] = {
+    # --- Identifier ---
+    "SK_ID_BUREAU": "int",    # bureau credit ID — joins to bureau.csv
+    # --- Monthly snapshot ---
+    "MONTHS_BALANCE": "int",  # month relative to application (0 = current, -1 = one month ago)
+    # --- Status (key risk signal) ---
+    "STATUS": "string",
+    # STATUS values:
+    #   C = closed
+    #   X = unknown
+    #   0 = no DPD (paid on time)
+    #   1 = 1-30 days past due
+    #   2 = 31-60 days past due
+    #   3 = 61-90 days past due
+    #   4 = 91-120 days past due
+    #   5 = 120+ days past due
+}
+
 BUREAU_SCHEMA: dict[str, str] = {
     # --- Identifiers ---
     "SK_ID_CURR": "int",  # client ID — joins to application_train
