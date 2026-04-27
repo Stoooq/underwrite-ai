@@ -3,6 +3,7 @@ from pathlib import Path
 
 from pyspark.sql import SparkSession
 
+from spark.aggregations import aggregate_bureau
 from spark.ingestion import DataLoader
 from spark.schemas import (
     APPLICATION_SCHEMA,
@@ -26,19 +27,19 @@ def main():
     data_schemas = [
         ("application", "application_train.csv", APPLICATION_SCHEMA),
         ("bureau", "bureau.csv", BUREAU_SCHEMA),
-        ("bureau_balance", "bureau_balance.csv", BUREAU_BALANCE_SCHEMA),
-        (
-            "previous_application",
-            "previous_application.csv",
-            PREVIOUS_APPLICATION_SCHEMA,
-        ),
-        (
-            "installments_payments",
-            "installments_payments.csv",
-            INSTALLMENTS_PAYMENTS_SCHEMA,
-        ),
-        ("pos_cash_balance", "POS_CASH_balance.csv", POS_CASH_BALANCE_SCHEMA),
-        ("credit_card_balance", "credit_card_balance.csv", CREDIT_CARD_BALANCE_SCHEMA),
+        # ("bureau_balance", "bureau_balance.csv", BUREAU_BALANCE_SCHEMA),
+        # (
+        #     "previous_application",
+        #     "previous_application.csv",
+        #     PREVIOUS_APPLICATION_SCHEMA,
+        # ),
+        # (
+        #     "installments_payments",
+        #     "installments_payments.csv",
+        #     INSTALLMENTS_PAYMENTS_SCHEMA,
+        # ),
+        # ("pos_cash_balance", "POS_CASH_balance.csv", POS_CASH_BALANCE_SCHEMA),
+        # ("credit_card_balance", "credit_card_balance.csv", CREDIT_CARD_BALANCE_SCHEMA),
     ]
 
     dataframes = {}
@@ -46,6 +47,8 @@ def main():
     for name, path, schema in data_schemas:
         df = dl.load_table(path=path, schema=schema)
         dataframes[name] = df
+
+    aggregate_bureau(dataframes["bureau"])
 
     spark.stop()
 
