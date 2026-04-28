@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pyspark.sql import SparkSession
 
-from spark.aggregations import aggregate_bureau
+from spark.aggregations import aggregate_bureau, aggregate_bureau_balance
 from spark.ingestion import DataLoader
 from spark.schemas import (
     APPLICATION_SCHEMA,
@@ -27,12 +27,12 @@ def main():
     data_schemas = [
         ("application", "application_train.csv", APPLICATION_SCHEMA),
         ("bureau", "bureau.csv", BUREAU_SCHEMA),
-        # ("bureau_balance", "bureau_balance.csv", BUREAU_BALANCE_SCHEMA),
-        # (
-        #     "previous_application",
-        #     "previous_application.csv",
-        #     PREVIOUS_APPLICATION_SCHEMA,
-        # ),
+        ("bureau_balance", "bureau_balance.csv", BUREAU_BALANCE_SCHEMA),
+        (
+            "previous_application",
+            "previous_application.csv",
+            PREVIOUS_APPLICATION_SCHEMA,
+        ),
         # (
         #     "installments_payments",
         #     "installments_payments.csv",
@@ -48,7 +48,11 @@ def main():
         df = dl.load_table(path=path, schema=schema)
         dataframes[name] = df
 
-    aggregate_bureau(dataframes["bureau"])
+    df_bureau_balance = aggregate_bureau_balance(dataframes["bureau_balance"])
+
+    df_aggregated = dataframes["bureau"].join(df_bureau_balance, "SK_ID_BUREAU", "left")
+
+    df_bureau = aggregate_bureau(df_aggregated)
 
     spark.stop()
 
