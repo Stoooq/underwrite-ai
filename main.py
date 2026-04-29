@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from pathlib import Path
 
 from pyspark.sql import SparkSession
@@ -11,6 +12,7 @@ from spark.aggregations import (
     aggregate_pos_cash_balance,
     aggregate_previous_application,
 )
+from spark.feature_engineering import run_feature_engineering
 from spark.ingestion import DataLoader
 from spark.schemas import (
     APPLICATION_SCHEMA,
@@ -25,11 +27,15 @@ from spark.schemas import (
 
 def main():
     os.environ["JAVA_HOME"] = "/usr/local/opt/openjdk@17"
-    spark = SparkSession.builder.getOrCreate()
+    spark = SparkSession.builder.config("spark.driver.memory", "2g").getOrCreate()
 
-    data_path = Path("data/raw/home-credit-default-risk")
+    raw_data_path = Path("data/raw/home-credit-default-risk")
+    processed_data_path = (
+        Path("data/processed")
+        / f"features_{datetime.now().strftime('%Y-%m-%d')}"
+    )
 
-    dl = DataLoader(spark, base_path=data_path)
+    dl = DataLoader(spark, base_path=raw_data_path)
 
     data_schemas = [
         ("application", "application_train.csv", APPLICATION_SCHEMA),
@@ -55,6 +61,9 @@ def main():
         df = dl.load_table(path=path, schema=schema)
         dataframes[name] = df
 
+    # print(dataframes["application"].count())
+    # print(len(dataframes["application"].columns))
+
     df_bureau_balance = aggregate_bureau_balance(dataframes["bureau_balance"])
     df_aggregated = dataframes["bureau"].join(df_bureau_balance, "SK_ID_BUREAU", "left")
     df_bureau = aggregate_bureau(df_aggregated)
@@ -76,7 +85,25 @@ def main():
         .join(df_cc, "SK_ID_CURR", "left")
     )
 
-    df_feature_store.show(vertical=True)
+    df_engineered = run_feature_engineering(
+        df_feature_store,
+        categorical_columns=[
+            "CODE_GENDER",
+            "FLAG_OWN_CAR",
+            "FLAG_OWN_REALTY",
+            "NAME_CONTRACT_TYPE",
+            "NAME_INCOME_TYPE",
+            "NAME_EDUCATION_TYPE",
+            "NAME_FAMILY_STATUS",
+            "NAME_HOUSING_TYPE",
+            "OCCUPATION_TYPE",
+            "ORGANIZATION_TYPE",
+        ],
+    )
+
+    df_engineered.show(1, vertical=True)
+
+    df_engineered.write.parquet(str(processed_data_path), mode="overwrite")
 
     spark.stop()
 

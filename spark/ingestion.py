@@ -9,7 +9,9 @@ class DataLoader:
         self.base_path = base_path
 
     def _load_csv(self, path: str) -> DataFrame:
-        return self.spark.read.csv(str(Path(self.base_path) / path), header=True, inferSchema=True)
+        return self.spark.read.csv(
+            str(Path(self.base_path) / path), header=True, inferSchema=True
+        )
 
     def _validate_columns(self, df: DataFrame, required_columns: list[str]):
         required_columns_set = set(required_columns)
@@ -38,6 +40,9 @@ class DataLoader:
         schema: dict[str, str],
     ) -> DataFrame:
         df = self._load_csv(path)
-        self._validate_columns(df, schema.keys())
+        self._validate_columns(df, list(schema.keys()))
         self._validate_types(df, schema)
+
+        df = df.select(list(schema.keys()))
+
         return df
