@@ -3,9 +3,11 @@ from datetime import datetime
 from pathlib import Path
 
 import lightgbm as lgb
+import shap
 from pyspark.sql import SparkSession
 
-from model.train import train_model
+from model.explain import calculate_shap, format_shap_values, take_n_features
+from model.train import calculate_metrics, load_parquet_data, split_data
 from spark.aggregations import (
     aggregate_bureau,
     aggregate_bureau_balance,
@@ -67,12 +69,11 @@ def main():
             df = dl.load_table(path=path, schema=schema)
             dataframes[name] = df
 
-        # print(dataframes["application"].count())
-        # print(len(dataframes["application"].columns))
-
         df_bureau_balance = aggregate_bureau_balance(dataframes["bureau_balance"])
         df_aggregated = dataframes["bureau"].join(
-            df_bureau_balance, "SK_ID_BUREAU", "left"
+            df_bureau_balance,
+            "SK_ID_BUREAU",
+            "left",
         )
         df_bureau = aggregate_bureau(df_aggregated)
 
@@ -109,17 +110,40 @@ def main():
             ],
         )
 
-        # df_engineered.show(1, vertical=True)
-
         df_engineered.write.parquet(str(processed_data_path), mode="overwrite")
 
     model = lgb.LGBMClassifier()
 
-    acc, roc_auc, conf_matrix = train_model(
-        processed_data_path, target_col="TARGET", val_size=0.2, model=model
+    df = load_parquet_data(processed_data_path)
+
+    X_train, X_val, y_train, y_val = split_data(
+        df,
+        target_col="TARGET",
+        val_size=0.2,
+        random_state=42,
     )
 
-    print(f"Acc: {acc}, Roc auc: {roc_auc}, Matrix: {conf_matrix}")
+    model.fit(X_train, y_train)
+
+    acc, roc_auc, conf_matrix = calculate_metrics(model, X_val, y_val)
+    # print(f"Acc: {acc}, Roc auc: {roc_auc}, Matrix: {conf_matrix}")
+
+    shap_values = calculate_shap(model, X_val)
+    sample_ind = 1
+
+    n_pos_shap_values, n_neg_shap_values = take_n_features(
+        shap_values[sample_ind],
+        X_val.columns,
+        10,
+    )
+
+    shap_prompt = format_shap_values(
+        n_pos_shap_values,
+        n_neg_shap_values,
+        y_val.iloc[sample_ind],
+    )
+    shap.plots.waterfall(shap_values[sample_ind], max_display=14)
+    print(shap_prompt)
 
     spark.stop()
 
