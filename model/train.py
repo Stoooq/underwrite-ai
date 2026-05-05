@@ -14,7 +14,10 @@ def load_parquet_data(data_path: Path) -> pd.DataFrame:
 
 
 def split_data(
-    df: pd.DataFrame, target_col: str, val_size: float = 0.2, random_state: int = 42
+    df: pd.DataFrame,
+    target_col: str,
+    val_size: float = 0.2,
+    random_state: int = 42,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     X = df.loc[:, df.columns != target_col]
     y = df[target_col]
@@ -29,24 +32,9 @@ def split_data(
     return X_train, X_val, y_train, y_val
 
 
-def train_model(
-    data_path: Path,
-    target_col: str,
-    val_size: float,
-    model: lgb.LGBMClassifier,
-    random_state: int = 42,
+def calculate_metrics(
+    model: lgb.LGBMClassifier, X_val: pd.DataFrame, y_val: pd.Series
 ) -> tuple[float, float, np.ndarray]:
-    df = load_parquet_data(data_path)
-
-    X_train, X_val, y_train, y_val = split_data(
-        df,
-        target_col,
-        val_size,
-        random_state=random_state,
-    )
-
-    model.fit(X_train, y_train)
-
     y_pred_prob = model.predict_proba(X_val)[:, 1]
     y_pred = model.predict(X_val)
 
