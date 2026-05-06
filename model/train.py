@@ -1,5 +1,7 @@
+import tempfile
 from pathlib import Path
 
+import joblib
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -45,3 +47,13 @@ def calculate_metrics(
     conf_matrix = confusion_matrix(y_val, y_pred)
 
     return acc, roc_auc, conf_matrix
+
+
+def save_model(model: lgb.LGBMClassifier, path: Path) -> None:
+    joblib.dump(model, path)
+
+
+def load_model(path: Path) -> lgb.LGBMClassifier:
+    model = joblib.load(path)
+
+    return model

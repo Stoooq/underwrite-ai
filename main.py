@@ -7,7 +7,13 @@ import shap
 from pyspark.sql import SparkSession
 
 from model.explain import calculate_shap, format_shap_values, take_n_features
-from model.train import calculate_metrics, load_parquet_data, split_data
+from model.train import (
+    calculate_metrics,
+    load_model,
+    load_parquet_data,
+    save_model,
+    split_data,
+)
 from spark.aggregations import (
     aggregate_bureau,
     aggregate_bureau_balance,
@@ -37,96 +43,104 @@ def main():
     processed_data_path = (
         Path("data/processed") / f"features_{datetime.now().strftime('%Y-%m-%d')}"
     )
+    model_path = Path("model/artifacts/lgbm_model.joblib")
 
-    if not processed_data_path.exists():
-        dl = DataLoader(spark, base_path=raw_data_path)
+    if not model_path.exists():
+        if not processed_data_path.exists():
+            dl = DataLoader(spark, base_path=raw_data_path)
 
-        data_schemas = [
-            ("application", "application_train.csv", APPLICATION_SCHEMA),
-            ("bureau", "bureau.csv", BUREAU_SCHEMA),
-            ("bureau_balance", "bureau_balance.csv", BUREAU_BALANCE_SCHEMA),
-            (
-                "previous_application",
-                "previous_application.csv",
-                PREVIOUS_APPLICATION_SCHEMA,
-            ),
-            (
-                "installments_payments",
-                "installments_payments.csv",
-                INSTALLMENTS_PAYMENTS_SCHEMA,
-            ),
-            ("pos_cash_balance", "POS_CASH_balance.csv", POS_CASH_BALANCE_SCHEMA),
-            (
-                "credit_card_balance",
-                "credit_card_balance.csv",
-                CREDIT_CARD_BALANCE_SCHEMA,
-            ),
-        ]
+            data_schemas = [
+                ("application", "application_train.csv", APPLICATION_SCHEMA),
+                ("bureau", "bureau.csv", BUREAU_SCHEMA),
+                ("bureau_balance", "bureau_balance.csv", BUREAU_BALANCE_SCHEMA),
+                (
+                    "previous_application",
+                    "previous_application.csv",
+                    PREVIOUS_APPLICATION_SCHEMA,
+                ),
+                (
+                    "installments_payments",
+                    "installments_payments.csv",
+                    INSTALLMENTS_PAYMENTS_SCHEMA,
+                ),
+                ("pos_cash_balance", "POS_CASH_balance.csv", POS_CASH_BALANCE_SCHEMA),
+                (
+                    "credit_card_balance",
+                    "credit_card_balance.csv",
+                    CREDIT_CARD_BALANCE_SCHEMA,
+                ),
+            ]
 
-        dataframes = {}
+            dataframes = {}
 
-        for name, path, schema in data_schemas:
-            df = dl.load_table(path=path, schema=schema)
-            dataframes[name] = df
+            for name, path, schema in data_schemas:
+                df = dl.load_table(path=path, schema=schema)
+                dataframes[name] = df
 
-        df_bureau_balance = aggregate_bureau_balance(dataframes["bureau_balance"])
-        df_aggregated = dataframes["bureau"].join(
-            df_bureau_balance,
-            "SK_ID_BUREAU",
-            "left",
+            df_bureau_balance = aggregate_bureau_balance(dataframes["bureau_balance"])
+            df_aggregated = dataframes["bureau"].join(
+                df_bureau_balance,
+                "SK_ID_BUREAU",
+                "left",
+            )
+            df_bureau = aggregate_bureau(df_aggregated)
+
+            df_prev_app = aggregate_previous_application(
+                dataframes["previous_application"]
+            )
+
+            df_inst = aggregate_installments(dataframes["installments_payments"])
+
+            df_pos = aggregate_pos_cash_balance(dataframes["pos_cash_balance"])
+
+            df_cc = aggregate_credit_card_balance(dataframes["credit_card_balance"])
+
+            df_feature_store = (
+                dataframes["application"]
+                .join(df_bureau, "SK_ID_CURR", "left")
+                .join(df_prev_app, "SK_ID_CURR", "left")
+                .join(df_inst, "SK_ID_CURR", "left")
+                .join(df_pos, "SK_ID_CURR", "left")
+                .join(df_cc, "SK_ID_CURR", "left")
+            )
+
+            df_engineered = run_feature_engineering(
+                df_feature_store,
+                categorical_columns=[
+                    "CODE_GENDER",
+                    "FLAG_OWN_CAR",
+                    "FLAG_OWN_REALTY",
+                    "NAME_CONTRACT_TYPE",
+                    "NAME_INCOME_TYPE",
+                    "NAME_EDUCATION_TYPE",
+                    "NAME_FAMILY_STATUS",
+                    "NAME_HOUSING_TYPE",
+                    "OCCUPATION_TYPE",
+                    "ORGANIZATION_TYPE",
+                ],
+            )
+
+            df_engineered.write.parquet(str(processed_data_path), mode="overwrite")
+
+        model = lgb.LGBMClassifier()
+
+        df = load_parquet_data(processed_data_path)
+
+        X_train, X_val, y_train, y_val = split_data(
+            df,
+            target_col="TARGET",
+            val_size=0.2,
+            random_state=42,
         )
-        df_bureau = aggregate_bureau(df_aggregated)
 
-        df_prev_app = aggregate_previous_application(dataframes["previous_application"])
+        model.fit(X_train, y_train)
 
-        df_inst = aggregate_installments(dataframes["installments_payments"])
+        acc, roc_auc, conf_matrix = calculate_metrics(model, X_val, y_val)
+        print(f"Acc: {acc}, Roc auc: {roc_auc}, Matrix: {conf_matrix}")
 
-        df_pos = aggregate_pos_cash_balance(dataframes["pos_cash_balance"])
-
-        df_cc = aggregate_credit_card_balance(dataframes["credit_card_balance"])
-
-        df_feature_store = (
-            dataframes["application"]
-            .join(df_bureau, "SK_ID_CURR", "left")
-            .join(df_prev_app, "SK_ID_CURR", "left")
-            .join(df_inst, "SK_ID_CURR", "left")
-            .join(df_pos, "SK_ID_CURR", "left")
-            .join(df_cc, "SK_ID_CURR", "left")
-        )
-
-        df_engineered = run_feature_engineering(
-            df_feature_store,
-            categorical_columns=[
-                "CODE_GENDER",
-                "FLAG_OWN_CAR",
-                "FLAG_OWN_REALTY",
-                "NAME_CONTRACT_TYPE",
-                "NAME_INCOME_TYPE",
-                "NAME_EDUCATION_TYPE",
-                "NAME_FAMILY_STATUS",
-                "NAME_HOUSING_TYPE",
-                "OCCUPATION_TYPE",
-                "ORGANIZATION_TYPE",
-            ],
-        )
-
-        df_engineered.write.parquet(str(processed_data_path), mode="overwrite")
-
-    model = lgb.LGBMClassifier()
-
-    df = load_parquet_data(processed_data_path)
-
-    X_train, X_val, y_train, y_val = split_data(
-        df,
-        target_col="TARGET",
-        val_size=0.2,
-        random_state=42,
-    )
-
-    model.fit(X_train, y_train)
-
-    acc, roc_auc, conf_matrix = calculate_metrics(model, X_val, y_val)
-    # print(f"Acc: {acc}, Roc auc: {roc_auc}, Matrix: {conf_matrix}")
+        save_model(model, model_path)
+    else:
+        load_model(model_path)
 
     shap_values = calculate_shap(model, X_val)
     sample_ind = 1
@@ -142,7 +156,7 @@ def main():
         n_neg_shap_values,
         y_val.iloc[sample_ind],
     )
-    shap.plots.waterfall(shap_values[sample_ind], max_display=14)
+
     print(shap_prompt)
 
     spark.stop()
