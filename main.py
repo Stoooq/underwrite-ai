@@ -6,6 +6,8 @@ import lightgbm as lgb
 import shap
 from pyspark.sql import SparkSession
 
+from agents.graph import build_graph
+from agents.state import UnderwritingState
 from model.explain import calculate_shap, format_shap_values, take_n_features
 from model.train import (
     calculate_metrics,
@@ -45,83 +47,83 @@ def main():
     )
     model_path = Path("model/artifacts/lgbm_model.joblib")
 
+    if not processed_data_path.exists():
+        dl = DataLoader(spark, base_path=raw_data_path)
+
+        data_schemas = [
+            ("application", "application_train.csv", APPLICATION_SCHEMA),
+            ("bureau", "bureau.csv", BUREAU_SCHEMA),
+            ("bureau_balance", "bureau_balance.csv", BUREAU_BALANCE_SCHEMA),
+            (
+                "previous_application",
+                "previous_application.csv",
+                PREVIOUS_APPLICATION_SCHEMA,
+            ),
+            (
+                "installments_payments",
+                "installments_payments.csv",
+                INSTALLMENTS_PAYMENTS_SCHEMA,
+            ),
+            ("pos_cash_balance", "POS_CASH_balance.csv", POS_CASH_BALANCE_SCHEMA),
+            (
+                "credit_card_balance",
+                "credit_card_balance.csv",
+                CREDIT_CARD_BALANCE_SCHEMA,
+            ),
+        ]
+
+        dataframes = {}
+
+        for name, path, schema in data_schemas:
+            df = dl.load_table(path=path, schema=schema)
+            dataframes[name] = df
+
+        df_bureau_balance = aggregate_bureau_balance(dataframes["bureau_balance"])
+        df_aggregated = dataframes["bureau"].join(
+            df_bureau_balance,
+            "SK_ID_BUREAU",
+            "left",
+        )
+        df_bureau = aggregate_bureau(df_aggregated)
+
+        df_prev_app = aggregate_previous_application(
+            dataframes["previous_application"],
+        )
+
+        df_inst = aggregate_installments(dataframes["installments_payments"])
+
+        df_pos = aggregate_pos_cash_balance(dataframes["pos_cash_balance"])
+
+        df_cc = aggregate_credit_card_balance(dataframes["credit_card_balance"])
+
+        df_feature_store = (
+            dataframes["application"]
+            .join(df_bureau, "SK_ID_CURR", "left")
+            .join(df_prev_app, "SK_ID_CURR", "left")
+            .join(df_inst, "SK_ID_CURR", "left")
+            .join(df_pos, "SK_ID_CURR", "left")
+            .join(df_cc, "SK_ID_CURR", "left")
+        )
+
+        df_engineered = run_feature_engineering(
+            df_feature_store,
+            categorical_columns=[
+                "CODE_GENDER",
+                "FLAG_OWN_CAR",
+                "FLAG_OWN_REALTY",
+                "NAME_CONTRACT_TYPE",
+                "NAME_INCOME_TYPE",
+                "NAME_EDUCATION_TYPE",
+                "NAME_FAMILY_STATUS",
+                "NAME_HOUSING_TYPE",
+                "OCCUPATION_TYPE",
+                "ORGANIZATION_TYPE",
+            ],
+        )
+
+        df_engineered.write.parquet(str(processed_data_path), mode="overwrite")
+
     if not model_path.exists():
-        if not processed_data_path.exists():
-            dl = DataLoader(spark, base_path=raw_data_path)
-
-            data_schemas = [
-                ("application", "application_train.csv", APPLICATION_SCHEMA),
-                ("bureau", "bureau.csv", BUREAU_SCHEMA),
-                ("bureau_balance", "bureau_balance.csv", BUREAU_BALANCE_SCHEMA),
-                (
-                    "previous_application",
-                    "previous_application.csv",
-                    PREVIOUS_APPLICATION_SCHEMA,
-                ),
-                (
-                    "installments_payments",
-                    "installments_payments.csv",
-                    INSTALLMENTS_PAYMENTS_SCHEMA,
-                ),
-                ("pos_cash_balance", "POS_CASH_balance.csv", POS_CASH_BALANCE_SCHEMA),
-                (
-                    "credit_card_balance",
-                    "credit_card_balance.csv",
-                    CREDIT_CARD_BALANCE_SCHEMA,
-                ),
-            ]
-
-            dataframes = {}
-
-            for name, path, schema in data_schemas:
-                df = dl.load_table(path=path, schema=schema)
-                dataframes[name] = df
-
-            df_bureau_balance = aggregate_bureau_balance(dataframes["bureau_balance"])
-            df_aggregated = dataframes["bureau"].join(
-                df_bureau_balance,
-                "SK_ID_BUREAU",
-                "left",
-            )
-            df_bureau = aggregate_bureau(df_aggregated)
-
-            df_prev_app = aggregate_previous_application(
-                dataframes["previous_application"]
-            )
-
-            df_inst = aggregate_installments(dataframes["installments_payments"])
-
-            df_pos = aggregate_pos_cash_balance(dataframes["pos_cash_balance"])
-
-            df_cc = aggregate_credit_card_balance(dataframes["credit_card_balance"])
-
-            df_feature_store = (
-                dataframes["application"]
-                .join(df_bureau, "SK_ID_CURR", "left")
-                .join(df_prev_app, "SK_ID_CURR", "left")
-                .join(df_inst, "SK_ID_CURR", "left")
-                .join(df_pos, "SK_ID_CURR", "left")
-                .join(df_cc, "SK_ID_CURR", "left")
-            )
-
-            df_engineered = run_feature_engineering(
-                df_feature_store,
-                categorical_columns=[
-                    "CODE_GENDER",
-                    "FLAG_OWN_CAR",
-                    "FLAG_OWN_REALTY",
-                    "NAME_CONTRACT_TYPE",
-                    "NAME_INCOME_TYPE",
-                    "NAME_EDUCATION_TYPE",
-                    "NAME_FAMILY_STATUS",
-                    "NAME_HOUSING_TYPE",
-                    "OCCUPATION_TYPE",
-                    "ORGANIZATION_TYPE",
-                ],
-            )
-
-            df_engineered.write.parquet(str(processed_data_path), mode="overwrite")
-
         model = lgb.LGBMClassifier()
 
         df = load_parquet_data(processed_data_path)
@@ -160,6 +162,21 @@ def main():
         model = load_model(model_path)
 
     spark.stop()
+
+    df = load_parquet_data(processed_data_path)
+    test_example = df.iloc[0]
+    test_example_features = test_example.drop("TARGET").to_dict()
+
+    state = UnderwritingState(
+        client_id=test_example_features["SK_ID_CURR"],
+        features=test_example_features,
+    )
+
+    app = build_graph()
+    result = app.invoke(state)
+
+    print(result["decision"])
+    print(result["report"])
 
 
 if __name__ == "__main__":

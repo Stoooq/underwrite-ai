@@ -1,11 +1,9 @@
-import anthropic
+from litellm import completion
 
 from agents.state import UnderwritingState
 
 
 def write_report(state: UnderwritingState) -> UnderwritingState:
-    client = anthropic.Anthropic()
-
     prompt = f"""You are a credit risk analyst assistant working for a financial institution.                                                                                 
     Your task is to write a concise loan decision report for a human credit analyst based on the automated underwriting system output.                           
                                                                                                                                                                 
@@ -26,12 +24,11 @@ def write_report(state: UnderwritingState) -> UnderwritingState:
     SHAP Analysis:                                                                                                                                               
     {state.shap_summary}"""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
+    response = completion(
+        model="ollama/gemma4:latest",
         messages=[{"role": "user", "content": prompt}],
     )
 
-    text = response.content[0].text
+    text = response.choices[0].message.content
 
     return state.model_copy(update={"report": text})

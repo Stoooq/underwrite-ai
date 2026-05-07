@@ -2,9 +2,9 @@ from agents.state import UnderwritingState
 
 
 def consistency_check(state: UnderwritingState) -> UnderwritingState:
-    credit_count = state.features["bureau_CREDIT_COUNT"]
-    active_count = state.features["bureau_ACTIVE_CREDIT_COUNT"]
-    refused_count = state.features["prev_app_REFUSED_COUNT"]
+    credit_count = state.features["bureau_total_count"]
+    active_count = state.features["bureau_active_count"]
+    refused_count = state.features["prev_app_refused_count"]
 
     rule1 = credit_count == 0 and active_count > 0
     rule2 = refused_count > 3
