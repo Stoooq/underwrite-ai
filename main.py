@@ -138,26 +138,26 @@ def main():
         acc, roc_auc, conf_matrix = calculate_metrics(model, X_val, y_val)
         print(f"Acc: {acc}, Roc auc: {roc_auc}, Matrix: {conf_matrix}")
 
+        shap_values = calculate_shap(model, X_val)
+        sample_ind = 1
+
+        n_pos_shap_values, n_neg_shap_values = take_n_features(
+            shap_values[sample_ind],
+            X_val.columns,
+            10,
+        )
+
+        shap_prompt = format_shap_values(
+            n_pos_shap_values,
+            n_neg_shap_values,
+            y_val.iloc[sample_ind],
+        )
+
+        print(shap_prompt)
+
         save_model(model, model_path)
     else:
-        load_model(model_path)
-
-    shap_values = calculate_shap(model, X_val)
-    sample_ind = 1
-
-    n_pos_shap_values, n_neg_shap_values = take_n_features(
-        shap_values[sample_ind],
-        X_val.columns,
-        10,
-    )
-
-    shap_prompt = format_shap_values(
-        n_pos_shap_values,
-        n_neg_shap_values,
-        y_val.iloc[sample_ind],
-    )
-
-    print(shap_prompt)
+        model = load_model(model_path)
 
     spark.stop()
 
